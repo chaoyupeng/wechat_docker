@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 # Build "Start WeChat.app" / "Stop WeChat.app" — double-clickable wrappers
 # around ./wechat. Re-run this if you move the repo or edit the launcher.
+#
+#   ./build-apps.sh             build them here in the repo
+#   ./build-apps.sh --install   build into /Applications instead, so they show
+#                               up in Spotlight and Launchpad
 set -euo pipefail
 cd "$(dirname "$0")"
 REPO="$(pwd)"
+
+DEST="$REPO"
+if [ "${1:-}" = "--install" ]; then
+  DEST="/Applications"
+  [ -w "$DEST" ] || { echo "/Applications is not writable by you." >&2; exit 1; }
+fi
 
 build() {
   # Separate statements: bash expands every word of a `local` before assigning
@@ -11,7 +21,7 @@ build() {
   local name="$1"
   local action="$2"
   local icon="$3"
-  local app="$REPO/$name.app"
+  local app="$DEST/$name.app"
   rm -rf "$app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 

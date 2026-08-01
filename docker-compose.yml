@@ -1,3 +1,7 @@
+# Pinned so the volume name never depends on the folder this repo sits in.
+# Without it, moving or renaming the directory orphans your login and history.
+name: wechat_docker
+
 services:
   weixin:
     image: lscr.io/linuxserver/weixin:latest

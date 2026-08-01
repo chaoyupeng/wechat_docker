@@ -28,11 +28,24 @@ mkdir -p ~/.docker/cli-plugins
 ln -sfn "$(brew --prefix)/opt/docker-compose/bin/docker-compose" \
         ~/.docker/cli-plugins/docker-compose
 
-git clone https://github.com/chaoyupeng/wechat_docker.git
-cd wechat_docker
-cp .env.example .env      # optional; edit your timezone
-./build-apps.sh           # creates the two clickable apps
+git clone https://github.com/chaoyupeng/wechat_docker.git ~/GitHub/wechat_docker
+cd ~/GitHub/wechat_docker
+cp .env.example .env         # optional; edit your timezone
+./build-apps.sh --install    # puts the two apps in /Applications
 ```
+
+> **Don't clone into `~/Desktop`, `~/Documents` or `~/Downloads`.** macOS TCC
+> protects those folders, and an app launched from Finder can't read files
+> inside them. The launcher will `cd` in fine and then fail with
+> `./wechat: Operation not permitted` — while the same script run from a
+> terminal works, which makes this genuinely confusing to diagnose. Anywhere
+> else in your home directory is fine. If you must keep it in a protected
+> folder, add both apps to **System Settings → Privacy & Security → Full Disk
+> Access** instead.
+
+Omit `--install` to build the apps into the repo folder instead. Either way,
+re-run `build-apps.sh` if you move the repo — each app bakes in the path it was
+built against.
 
 If `docker` isn't found after installing, Homebrew probably couldn't link it
 because the deprecated `docker-completion` formula owns the same files:
@@ -181,8 +194,10 @@ the failing service.
 
 **Black or frozen screen.** Raise `shm_size` to `2gb`.
 
-**Apps do nothing when clicked.** They log to `/tmp/wechat-sandbox.log`. If you
-moved the repo after building them, re-run `./build-apps.sh`.
+**Apps do nothing when clicked.** They log to `/tmp/wechat-sandbox.log`. Two
+common causes: you moved the repo after building them (re-run
+`./build-apps.sh --install`), or the repo is in a TCC-protected folder and the
+log shows `Operation not permitted` — see the note under [Install](#install).
 
 ## Not on macOS?
 
