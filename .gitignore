@@ -1,0 +1,9 @@
+# Built locally by ./build-apps.sh — they embed an absolute path, so they are
+# per-machine and must not be committed.
+*.app/
+
+# Local configuration
+.env
+
+# Intermediate icon build output
+icons/*.iconset/

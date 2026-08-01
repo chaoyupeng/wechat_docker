@@ -1,0 +1,71 @@
+services:
+  weixin:
+    image: lscr.io/linuxserver/weixin:latest
+    container_name: weixin
+    hostname: weixin
+
+    # Anything commented out in .env.example simply won't be set here.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-Etc/UTC}
+
+    # Named Docker volume ONLY. No host bind mount anywhere, so the container
+    # has no path into your macOS filesystem. WeChat's data lives inside the
+    # volume; pull files out deliberately with `docker cp`.
+    volumes:
+      - weixin-config:/config
+
+    # Loopback-bound: reachable only from this Mac, never from the LAN.
+    #  3000 = HTTP. Browsers treat http://localhost as a secure context, so the
+    #         page gets clipboard/mic APIs with no certificate warning. Safe
+    #         here precisely because it cannot leave the machine.
+    #  3001 = HTTPS with a self-signed cert. Encrypted, but the browser cannot
+    #         verify the issuer, so it shows "connection is not private".
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3001:3001"
+
+    networks:
+      weixin-net:
+
+    # ---- privilege isolation -------------------------------------------
+    security_opt:
+      - no-new-privileges:true   # also neuters the image's sudo terminal
+    cap_drop:
+      - ALL
+    cap_add:                     # minimum s6-overlay needs to drop to PUID/PGID
+      - CHOWN
+      - SETUID
+      - SETGID
+      - FOWNER
+      - DAC_OVERRIDE
+
+    # ---- memory / resource isolation -----------------------------------
+    # Separate IPC namespace: no shared-memory segments with any other
+    # container or with the VM. Nothing here can read another process's RAM.
+    ipc: private
+    shm_size: "1gb"              # WeChat's renderer needs a big /dev/shm
+    mem_limit: ${WECHAT_MEM:-4g}
+    memswap_limit: ${WECHAT_MEM:-4g}   # == mem_limit, so swap is off
+    cpus: ${WECHAT_CPUS:-4}
+    pids_limit: 512
+
+    # Explicitly NOT "unless-stopped": WeChat should only ever run because you
+    # asked it to, never because the VM or the Mac restarted. Use ./wechat.
+    restart: "no"
+
+volumes:
+  weixin-config:
+
+networks:
+  weixin-net:
+    driver: bridge
+    ipam:
+      config:
+        # Fixed subnet so harden-network.sh can write egress rules for it.
+        # Both files read WECHAT_SUBNET, so they cannot drift apart.
+        - subnet: ${WECHAT_SUBNET:-172.30.7.0/24}

@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# On-demand WeChat. Nothing here runs at login or survives a reboot.
+#
+#   ./wechat start    boot VM if needed, start WeChat, firewall it, open browser
+#   ./wechat stop     stop WeChat; also shut the VM down if nothing else needs it
+#   ./wechat status   what is currently running
+#   ./wechat reset    destroy all WeChat data and start over (asks first)
+
+set -euo pipefail
+cd "$(dirname "$0")"
+
+# Plain HTTP on loopback: no certificate warning, and browsers still treat
+# http://localhost as a secure context so the page keeps its clipboard/mic
+# APIs. https://localhost:3001 also works if you prefer, at the cost of a
+# self-signed-certificate warning. Neither port is reachable off this machine.
+URL="http://localhost:3000"
+
+say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m/!\\\033[0m %s\n' "$*"; }
+
+vm_up()  { colima status >/dev/null 2>&1; }
+app_up() { [ "$(docker inspect -f '{{.State.Running}}' weixin 2>/dev/null)" = "true" ]; }
+
+# Containers running in this VM that are not ours — e.g. flaresolverr.
+other_containers() {
+  docker ps --format '{{.Names}}' 2>/dev/null | grep -vx weixin || true
+}
+
+cmd_start() {
+  if ! vm_up; then
+    if colima list 2>/dev/null | grep -qw default || [ -d "$HOME/.colima/_lima/colima" ]; then
+      say "Starting the Linux VM (~20s)..."
+      colima start
+    else
+      # First run: the colima default is 2 CPU / 2 GB, too small for WeChat.
+      say "First run — creating the Linux VM (~2 min, one time only)..."
+      colima start --vm-type vz --cpu 6 --memory 10 --disk 60
+    fi
+  else
+    say "VM already running."
+  fi
+
+  say "Starting WeChat..."
+  docker compose up -d
+
+  # iptables rules live in the VM and are wiped by every colima stop.
+  say "Applying network isolation..."
+  ./harden-network.sh apply >/dev/null
+
+  printf '==> Waiting for the UI'
+  for _ in $(seq 1 60); do
+    if curl -sk -o /dev/null -m 2 "$URL/"; then
+      printf ' ready\n'
+      say "Opening $URL"
+      open "$URL"
+      return 0
+    fi
+    printf '.'; sleep 2
+  done
+  printf '\n'
+  warn "UI did not come up in 120s. Check: docker compose logs weixin"
+  return 1
+}
+
+cmd_stop() {
+  if app_up; then
+    say "Stopping WeChat..."
+    docker compose stop
+  else
+    say "WeChat was not running."
+  fi
+
+  if ! vm_up; then
+    say "VM already down."
+    return 0
+  fi
+
+  local others
+  others=$(other_containers)
+  if [ -n "$others" ]; then
+    warn "Leaving the VM up — these containers are still running:"
+    printf '      %s\n' $others
+    warn "Stop the VM anyway with: colima stop"
+  else
+    say "Nothing else needs the VM. Shutting it down (frees ~7 GB RAM)..."
+    colima stop
+  fi
+}
+
+cmd_status() {
+  if vm_up; then say "VM:     running"; else say "VM:     stopped"; echo "    WeChat: stopped (VM is down)"; return 0; fi
+  if app_up; then
+    say "WeChat: running -> $URL"
+    docker stats --no-stream --format '    mem {{.MemUsage}}  cpu {{.CPUPerc}}' weixin
+    if colima ssh -- sudo iptables -S DOCKER-USER 2>/dev/null | grep -q DROP; then
+      say "Egress firewall: active"
+    else
+      warn "Egress firewall: NOT active — run ./harden-network.sh apply"
+    fi
+  else
+    say "WeChat: stopped"
+  fi
+  local others; others=$(other_containers)
+  [ -n "$others" ] && say "Other containers: $(echo $others | tr '\n' ' ')"
+  return 0
+}
+
+cmd_reset() {
+  warn "This deletes the WeChat volume: all chat history and your login."
+  read -r -p "Type 'yes' to confirm: " ans
+  [ "$ans" = "yes" ] || { say "Cancelled."; return 0; }
+  vm_up || colima start
+  docker compose down -v
+  say "Wiped. Run './wechat start' for a fresh install."
+}
+
+case "${1:-start}" in
+  start)  cmd_start ;;
+  stop)   cmd_stop ;;
+  status) cmd_status ;;
+  reset)  cmd_reset ;;
+  *) echo "usage: $0 [start|stop|status|reset]" >&2; exit 2 ;;
+esac
