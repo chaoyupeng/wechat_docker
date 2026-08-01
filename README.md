@@ -147,6 +147,40 @@ Everything lives in `.env` (see `.env.example`): timezone, subnet, memory and
 CPU ceilings, and the optional lockdown toggles above. `docker-compose.yml` and
 `harden-network.sh` both read `WECHAT_SUBNET`, so they can't drift apart.
 
+## Closing the browser tab does not stop WeChat
+
+The browser is only a viewer, like VNC. Close the tab and the display detaches,
+but WeChat keeps running inside the container — still online, still receiving
+messages, still using memory. Reopen `http://localhost:3000` to reattach to the
+same session.
+
+That's usually what you want, but it means **closing the tab is not stopping
+it**. Use `Stop WeChat.app` (or `./wechat stop`) to actually shut it down.
+`./wechat status` will tell you what's really running.
+
+## Does my login survive a restart?
+
+Yes. Verified by fingerprinting `login_config` before and after a full
+stop/start: byte-identical, chat history intact, the client resumes the account
+instead of showing a QR screen.
+
+| Action | Login & history |
+| --- | --- |
+| `Stop WeChat.app` → `Start WeChat.app` | Kept |
+| `colima stop`, or rebooting your Mac | Kept — the volume is on the VM's disk |
+| `docker compose down` | Kept — the volume is named, not anonymous |
+| `./wechat reset` / `docker compose down -v` | **Destroyed** — full QR re-scan |
+| `colima delete` | **Destroyed** — takes the VM's whole disk with it |
+
+That last row is easy to trip over: WeChat's data lives inside the VM, not in
+this repo or anywhere on your Mac's normal filesystem. Deleting the VM while
+troubleshooting Docker deletes your WeChat account data too. Back it up with
+`docker run --rm -v wechat_docker_weixin-config:/c -v "$PWD":/out alpine \
+tar czf /out/wechat-backup.tar.gz -C /c .` if that matters to you.
+
+Tencent can still expire a session server-side, so an occasional re-scan is
+normal WeChat behaviour rather than something this setup causes.
+
 ## Moving files in and out
 
 Deliberate, one file at a time — that's the point:
